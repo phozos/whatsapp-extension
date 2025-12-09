@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=400">
+  <title>WhatsApp Pro Automation</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <h1>WhatsApp Pro Automation</h1>
+      <div class="status-indicator" id="connectionStatus">
+        <span class="status-dot"></span>
+        <span class="status-text">Checking...</span>
+      </div>
+    </header>
+
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="members">Add Members</button>
+      <button class="tab-btn" data-tab="messages">Bulk Message</button>
+      <button class="tab-btn" data-tab="settings">Settings</button>
+    </nav>
+
+    <!-- TAB 1: ADD MEMBERS -->
+    <section id="members" class="tab-content active">
+      <div class="form-group">
+        <label for="groupSelect">Select Group</label>
+        <select id="groupSelect" class="form-control">
+          <option value="">-- Select a Group --</option>
+        </select>
+        <button id="refreshGroups" class="btn-icon" title="Refresh Groups">↻</button>
+      </div>
+
+      <div class="form-group">
+        <label for="phoneNumbers">Phone Numbers (one per line)</label>
+        <textarea id="phoneNumbers" class="form-control" rows="6" placeholder="+919876543210&#10;+919876543211&#10;+919876543212"></textarea>
+        <small class="hint">Format: +[country code][number] e.g., +919876543210</small>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group half">
+          <label for="addDelay">Delay (seconds)</label>
+          <input type="number" id="addDelay" class="form-control" value="5" min="3" max="15">
+        </div>
+        <div class="form-group half">
+          <label for="addBatchSize">Batch Size</label>
+          <input type="number" id="addBatchSize" class="form-control" value="10" min="1" max="20">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="addRandomDelay" checked>
+          <span>Random delays (±2 seconds variation)</span>
+        </label>
+      </div>
+
+      <div class="button-group">
+        <button id="validateNumbers" class="btn btn-secondary">Validate Numbers</button>
+        <button id="startAddMembers" class="btn btn-primary">Start Adding</button>
+      </div>
+
+      <div class="button-group">
+        <button id="pauseAddMembers" class="btn btn-warning" disabled>Pause</button>
+        <button id="stopAddMembers" class="btn btn-danger" disabled>Stop</button>
+      </div>
+
+      <div class="progress-section" id="addProgress" style="display: none;">
+        <div class="progress-bar">
+          <div class="progress-fill" id="addProgressFill"></div>
+        </div>
+        <p class="progress-text" id="addProgressText">Added 0/0 members</p>
+      </div>
+
+      <div class="log-section">
+        <div class="log-header">
+          <span>Activity Log</span>
+          <button id="clearAddLog" class="btn-small">Clear</button>
+        </div>
+        <div class="log-container" id="addLog"></div>
+      </div>
+    </section>
+
+    <!-- TAB 2: BULK MESSAGE -->
+    <section id="messages" class="tab-content">
+      <div class="form-group">
+        <label for="sendTo">Send To</label>
+        <select id="sendTo" class="form-control">
+          <option value="groups">Selected Groups</option>
+          <option value="contacts">Selected Contacts</option>
+          <option value="numbers">Phone Numbers List</option>
+          <option value="allGroups">All Groups</option>
+        </select>
+      </div>
+
+      <div class="form-group" id="recipientSelectGroup">
+        <label>Choose Recipients</label>
+        <input type="text" id="recipientSearch" class="form-control" placeholder="Search...">
+        <div class="multi-select" id="recipientList"></div>
+      </div>
+
+      <div class="form-group" id="phoneListGroup" style="display: none;">
+        <label for="messagePhoneNumbers">Phone Numbers (one per line)</label>
+        <textarea id="messagePhoneNumbers" class="form-control" rows="4" placeholder="+919876543210&#10;+919876543211"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label for="messageTemplate">Message Template</label>
+        <textarea id="messageTemplate" class="form-control" rows="5" placeholder="Hi {{name}}, this is a personalized message sent at {{time}}"></textarea>
+        <div class="variables-help">
+          <span class="variable-tag">{{name}}</span>
+          <span class="variable-tag">{{phone}}</span>
+          <span class="variable-tag">{{group}}</span>
+          <span class="variable-tag">{{date}}</span>
+          <span class="variable-tag">{{time}}</span>
+          <span class="variable-tag">{{custom1}}</span>
+          <span class="variable-tag">{{custom2}}</span>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="csvUpload">Upload CSV (optional)</label>
+        <input type="file" id="csvUpload" class="form-control" accept=".csv">
+        <small class="hint">Columns: phone, name, custom1, custom2</small>
+      </div>
+
+      <div class="form-group">
+        <label for="mediaUpload">Attach Media (optional)</label>
+        <input type="file" id="mediaUpload" class="form-control" accept="image/*,video/*,.pdf,.doc,.docx">
+        <div id="mediaPreview" class="media-preview"></div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group third">
+          <label for="msgDelay">Delay (sec)</label>
+          <input type="number" id="msgDelay" class="form-control" value="10" min="5" max="30">
+        </div>
+        <div class="form-group third">
+          <label for="msgBatchSize">Per Batch</label>
+          <input type="number" id="msgBatchSize" class="form-control" value="10" min="1" max="30">
+        </div>
+        <div class="form-group third">
+          <label for="msgBatchBreak">Break (min)</label>
+          <input type="number" id="msgBatchBreak" class="form-control" value="5" min="1" max="30">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="skipDuplicates" checked>
+          <span>Skip duplicates</span>
+        </label>
+      </div>
+
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="skipRecent" checked>
+          <span>Skip if messaged in last 24 hours</span>
+        </label>
+      </div>
+
+      <div class="button-group">
+        <button id="previewMessages" class="btn btn-secondary">Preview Messages</button>
+        <button id="startBulkMessage" class="btn btn-primary">Start Sending</button>
+      </div>
+
+      <div class="button-group">
+        <button id="pauseBulkMessage" class="btn btn-warning" disabled>Pause</button>
+        <button id="stopBulkMessage" class="btn btn-danger" disabled>Stop</button>
+      </div>
+
+      <div class="progress-section" id="msgProgress" style="display: none;">
+        <div class="progress-bar">
+          <div class="progress-fill" id="msgProgressFill"></div>
+        </div>
+        <p class="progress-text" id="msgProgressText">Sent 0/0 messages</p>
+        <div class="stats-row">
+          <span class="stat" id="msgSuccessRate">Success: 0%</span>
+          <span class="stat" id="msgTimeRemaining">ETA: --</span>
+        </div>
+      </div>
+
+      <div id="previewContainer" class="preview-container" style="display: none;">
+        <h4>Message Preview</h4>
+        <div id="previewContent"></div>
+      </div>
+
+      <div class="log-section">
+        <div class="log-header">
+          <span>Activity Log</span>
+          <button id="clearMsgLog" class="btn-small">Clear</button>
+        </div>
+        <div class="log-container" id="msgLog"></div>
+      </div>
+    </section>
+
+    <!-- TAB 3: SETTINGS -->
+    <section id="settings" class="tab-content">
+      <div class="settings-group">
+        <h3>General Settings</h3>
+        
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="enableNotifications" checked>
+            <span>Enable notifications</span>
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="autoPauseErrors" checked>
+            <span>Auto-pause on errors</span>
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label for="maxRetries">Max retries per action</label>
+          <input type="number" id="maxRetries" class="form-control" value="3" min="0" max="5">
+        </div>
+
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="screenshotErrors">
+            <span>Take screenshots on errors</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <h3>Safety Settings</h3>
+        
+        <div class="form-group">
+          <label for="maxPerHour">Max actions per hour</label>
+          <input type="number" id="maxPerHour" class="form-control" value="50" min="10" max="200">
+        </div>
+
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="smartRateLimit" checked>
+            <span>Smart rate limiting</span>
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label for="cooldownMinutes">Cooldown after rate limit (minutes)</label>
+          <input type="number" id="cooldownMinutes" class="form-control" value="15" min="5" max="60">
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <h3>Message Settings</h3>
+        
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="simulateTyping" checked>
+            <span>Simulate typing indicator</span>
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label for="typingDuration">Typing duration (seconds)</label>
+          <input type="number" id="typingDuration" class="form-control" value="3" min="1" max="10">
+        </div>
+
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="markAsRead">
+            <span>Mark messages as read before sending</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <h3>Export Options</h3>
+        <div class="button-group vertical">
+          <button id="exportLogs" class="btn btn-secondary">Export Logs (CSV)</button>
+          <button id="exportSuccess" class="btn btn-secondary">Export Success List (TXT)</button>
+          <button id="exportFailed" class="btn btn-secondary">Export Failed List (TXT)</button>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <h3>Clear Data</h3>
+        <div class="button-group vertical">
+          <button id="clearLogs" class="btn btn-warning">Clear Logs</button>
+          <button id="clearHistory" class="btn btn-warning">Clear History</button>
+          <button id="resetSettings" class="btn btn-danger">Reset All Settings</button>
+        </div>
+      </div>
+
+      <button id="saveSettings" class="btn btn-primary btn-full">Save Settings</button>
+    </section>
+  </div>
+
+  <script src="utils.js"></script>
+  <script src="storage.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
