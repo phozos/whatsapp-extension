@@ -1,5 +1,6 @@
 const WhatsAppAPI = {
   isReady: false,
+  apiReadyState: 'pending',
   readyCallbacks: [],
   connectionState: false,
   connectionObserver: null,
@@ -104,25 +105,30 @@ const WhatsAppAPI = {
   waitForReady() {
     const maxWaitTime = 120000;
     const startTime = Date.now();
+    this.apiReadyState = 'initializing';
     
     const checkReady = () => {
       if (window.WA && window.WA.ready) {
         this.isReady = true;
+        this.apiReadyState = 'ready';
         this.readyCallbacks.forEach(cb => cb());
         this.readyCallbacks = [];
         console.log('WhatsApp API ready');
       } else if (window.WA && window.WA.error) {
         console.warn('WhatsApp API error:', window.WA.error);
         this.isReady = false;
+        this.apiReadyState = 'error';
       } else if (Date.now() - startTime < maxWaitTime) {
         setTimeout(checkReady, 500);
       } else {
         console.warn('WhatsApp API: Timeout waiting for ready state');
+        this.apiReadyState = 'timeout';
       }
     };
 
     window.addEventListener('WAReady', () => {
       this.isReady = true;
+      this.apiReadyState = 'ready';
       this.readyCallbacks.forEach(cb => cb());
       this.readyCallbacks = [];
       console.log('WhatsApp API ready (event)');
@@ -131,6 +137,7 @@ const WhatsAppAPI = {
     window.addEventListener('WAError', (e) => {
       console.warn('WhatsApp API error event:', e.detail);
       this.isReady = false;
+      this.apiReadyState = 'error';
     });
 
     checkReady();
@@ -201,20 +208,31 @@ const WhatsAppAPI = {
 
   async waitForWAReady() {
     return new Promise((resolve) => {
+      const startTime = Date.now();
+      const maxWait = 15000;
+      
       const check = () => {
         if (window.WA && window.WA.ready) {
+          this.apiReadyState = 'ready';
           resolve(true);
+        } else if (Date.now() - startTime >= maxWait) {
+          console.warn('[WA-API] waitForWAReady timed out after', maxWait, 'ms');
+          resolve(false);
         } else {
           setTimeout(check, 200);
         }
       };
       check();
-      setTimeout(() => resolve(false), 15000);
     });
   },
 
   async getGroups() {
-    await this.waitForWAReady();
+    const waReady = await this.waitForWAReady();
+    
+    if (!waReady) {
+      console.warn('[WA-API] getGroups: WA not ready');
+      return { groups: [], error: 'WhatsApp API not ready. Please wait and try again.' };
+    }
     
     return new Promise((resolve) => {
       const script = document.createElement('script');
@@ -225,11 +243,20 @@ const WhatsAppAPI = {
               window.postMessage({ type: 'WA_GROUPS', groups: [], error: 'WA not ready' }, '*');
               return;
             }
-            const groups = window.WA.getGroups().map(g => ({
+            const groupsResult = window.WA.getGroups();
+            
+            if (groupsResult && groupsResult.error) {
+              window.postMessage({ type: 'WA_GROUPS', groups: [], error: groupsResult.error }, '*');
+              return;
+            }
+            
+            const groupsArray = Array.isArray(groupsResult) ? groupsResult : (groupsResult.groups || []);
+            const groups = groupsArray.map(g => ({
               id: g.id?._serialized || String(g.id),
               name: g.name || g.formattedTitle || 'Unknown Group',
               participants: g.groupMetadata?.participants?.length || g.participants?.length || 0
             }));
+            console.log('[WA-API] getGroups: Mapped', groups.length, 'groups');
             window.postMessage({ type: 'WA_GROUPS', groups }, '*');
           } catch (e) {
             console.error('[WA-API] getGroups error:', e);
@@ -245,15 +272,17 @@ const WhatsAppAPI = {
           window.removeEventListener('message', handler);
           if (event.data.error) {
             console.warn('[WA-API] Groups fetch error:', event.data.error);
+            resolve({ groups: event.data.groups || [], error: event.data.error });
+          } else {
+            resolve({ groups: event.data.groups || [] });
           }
-          resolve(event.data.groups || []);
         }
       };
       window.addEventListener('message', handler);
 
       setTimeout(() => {
         window.removeEventListener('message', handler);
-        resolve([]);
+        resolve({ groups: [], error: 'Timeout fetching groups' });
       }, 10000);
     });
   },
@@ -380,7 +409,15 @@ const WhatsAppAPI = {
     if (forceCheck) {
       this.updateConnectionState();
     }
-    return this.connectionState && this.isReady;
+    return this.connectionState && this.isReady && this.apiReadyState === 'ready';
+  },
+
+  getApiState() {
+    return {
+      isReady: this.isReady,
+      apiReadyState: this.apiReadyState,
+      connectionState: this.connectionState
+    };
   }
 };
 

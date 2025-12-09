@@ -125,6 +125,13 @@ class PopupController {
           if (response?.connected) {
             this.updateConnectionStatus(true);
             return;
+          } else if (response?.apiState) {
+            const apiState = response.apiState;
+            if (apiState.connectionState && apiState.apiReadyState === 'initializing') {
+              this.updateConnectionStatus(false, 'Initializing...');
+            } else if (apiState.connectionState && !apiState.isReady) {
+              this.updateConnectionStatus(false, 'API Loading...');
+            }
           }
         } catch (error) {
         }
@@ -161,17 +168,49 @@ class PopupController {
   }
 
   async loadGroups() {
+    const select = document.getElementById('groupSelect');
+    const refreshBtn = document.getElementById('refreshGroups');
+    
+    select.innerHTML = '<option value="">Loading groups...</option>';
+    select.disabled = true;
+    if (refreshBtn) refreshBtn.disabled = true;
+    
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       const response = await chrome.tabs.sendMessage(tab.id, { action: 'getGroups' });
       
-      this.groups = response?.groups || [];
-      this.populateGroupSelect();
+      if (response?.error) {
+        console.warn('Groups load error:', response.error);
+        this.groups = response.groups || [];
+        this.showGroupsError(response.error);
+      } else {
+        this.groups = response?.groups || [];
+        if (this.groups.length === 0) {
+          this.showGroupsError('No groups found. Make sure WhatsApp is fully loaded.');
+        } else {
+          this.populateGroupSelect();
+        }
+      }
       this.populateRecipientList();
     } catch (error) {
       console.error('Error loading groups:', error);
       this.groups = [];
+      this.showGroupsError('Failed to load groups. Click refresh to retry.');
+    } finally {
+      select.disabled = false;
+      if (refreshBtn) refreshBtn.disabled = false;
     }
+  }
+
+  showGroupsError(message) {
+    const select = document.getElementById('groupSelect');
+    select.innerHTML = `<option value="">-- ${message} --</option>`;
+    
+    this.appendLog({ 
+      type: 'warning', 
+      message: message, 
+      timestamp: Utils.formatTimestamp(new Date()) 
+    }, 'addLog');
   }
 
   async loadContacts() {

@@ -44,9 +44,35 @@
 
         getChats: function() {
           try {
+            console.log('[WA-EXT] getChats: Trying to fetch chats...');
+            
             if (WPP.whatsapp && WPP.whatsapp.ChatStore) {
-              return WPP.whatsapp.ChatStore.getModelsArray();
+              const chats = WPP.whatsapp.ChatStore.getModelsArray();
+              console.log('[WA-EXT] getChats: Got', chats?.length || 0, 'chats from ChatStore');
+              if (chats && chats.length > 0) return chats;
             }
+            
+            if (WPP.chat && WPP.chat.list) {
+              try {
+                const chats = WPP.chat.list();
+                console.log('[WA-EXT] getChats: Got', chats?.length || 0, 'chats from WPP.chat.list');
+                if (chats && chats.length > 0) return chats;
+              } catch (e) {
+                console.log('[WA-EXT] getChats: WPP.chat.list failed:', e.message);
+              }
+            }
+            
+            if (typeof Store !== 'undefined' && Store.Chat) {
+              try {
+                const chats = Store.Chat.getModelsArray ? Store.Chat.getModelsArray() : Store.Chat.models;
+                console.log('[WA-EXT] getChats: Got', chats?.length || 0, 'chats from Store.Chat');
+                if (chats && chats.length > 0) return chats;
+              } catch (e) {
+                console.log('[WA-EXT] getChats: Store.Chat failed:', e.message);
+              }
+            }
+            
+            console.warn('[WA-EXT] getChats: No chats found from any source');
             return [];
           } catch (e) {
             console.error('[WA-EXT] Error getting chats:', e);
@@ -56,8 +82,26 @@
 
         getGroups: function() {
           try {
+            console.log('[WA-EXT] getGroups: Fetching groups...');
             const chats = this.getChats();
-            return chats.filter(c => c.isGroup && !c.isReadOnly);
+            
+            if (!Array.isArray(chats) || chats.length === 0) {
+              console.warn('[WA-EXT] getGroups: No chats available');
+              return [];
+            }
+            
+            const isGroup = (c) => {
+              if (c.isGroup) return true;
+              if (c.id && c.id.server === 'g.us') return true;
+              if (c.id && c.id._serialized && c.id._serialized.includes('@g.us')) return true;
+              if (c.kind === 'group') return true;
+              return false;
+            };
+            
+            const groups = chats.filter(c => isGroup(c) && !c.isReadOnly);
+            console.log('[WA-EXT] getGroups: Found', groups.length, 'groups from', chats.length, 'chats');
+            
+            return groups;
           } catch (e) {
             console.error('[WA-EXT] Error getting groups:', e);
             return [];

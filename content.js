@@ -59,12 +59,23 @@ const AutomationEngine = {
   async handleMessage(message, sendResponse) {
     switch (message.action) {
       case 'ping':
-        sendResponse({ status: 'ok', connected: WhatsAppAPI.isConnected(true) });
+        const apiState = WhatsAppAPI.getApiState();
+        sendResponse({ 
+          status: 'ok', 
+          connected: WhatsAppAPI.isConnected(true),
+          apiState: apiState
+        });
         break;
 
       case 'getGroups':
-        const groups = await WhatsAppAPI.getGroups();
-        sendResponse({ groups });
+        const groupsResult = await WhatsAppAPI.getGroups();
+        if (groupsResult && groupsResult.error) {
+          sendResponse({ groups: groupsResult.groups || [], error: groupsResult.error });
+        } else if (Array.isArray(groupsResult)) {
+          sendResponse({ groups: groupsResult });
+        } else {
+          sendResponse({ groups: groupsResult.groups || [] });
+        }
         break;
 
       case 'getContacts':
@@ -426,7 +437,8 @@ const AutomationEngine = {
         }
       }
     } else if (targets.type === 'allGroups') {
-      const groups = await WhatsAppAPI.getGroups();
+      const groupsResult = await WhatsAppAPI.getGroups();
+      const groups = groupsResult?.groups || (Array.isArray(groupsResult) ? groupsResult : []);
       for (const group of groups) {
         recipients.push({
           id: group.id,
