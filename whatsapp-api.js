@@ -295,29 +295,41 @@ const WhatsAppAPI = {
     return new Promise((resolve) => {
       const script = document.createElement('script');
       script.textContent = `
-        (function() {
+        (async function() {
+          console.log('[WA-API] getGroups injected script starting (async)...');
           try {
+            console.log('[WA-API] window.WA exists:', !!window.WA);
+            console.log('[WA-API] window.WA.ready:', window.WA ? window.WA.ready : 'N/A');
+            
             if (!window.WA || !window.WA.ready) {
+              console.warn('[WA-API] WA not ready, sending error response');
               window.postMessage({ type: 'WA_GROUPS', groups: [], error: 'WA not ready' }, '*');
               return;
             }
-            const groupsResult = window.WA.getGroups();
+            
+            console.log('[WA-API] Calling window.WA.getGroups() (async)...');
+            const groupsResult = await window.WA.getGroups();
+            console.log('[WA-API] getGroups result type:', typeof groupsResult, 'isArray:', Array.isArray(groupsResult));
             
             if (groupsResult && groupsResult.error) {
+              console.warn('[WA-API] getGroups returned error:', groupsResult.error);
               window.postMessage({ type: 'WA_GROUPS', groups: [], error: groupsResult.error }, '*');
               return;
             }
             
             const groupsArray = Array.isArray(groupsResult) ? groupsResult : (groupsResult.groups || []);
+            console.log('[WA-API] Processing', groupsArray.length, 'groups');
+            
             const groups = groupsArray.map(g => ({
-              id: g.id?._serialized || String(g.id),
+              id: g.id?._serialized || g.id || String(g.id),
               name: g.name || g.formattedTitle || 'Unknown Group',
-              participants: g.groupMetadata?.participants?.length || g.participants?.length || 0
+              participants: g.groupMetadata?.participants?.length || g.participants?.length || g.participants || 0
             }));
-            console.log('[WA-API] getGroups: Mapped', groups.length, 'groups');
+            console.log('[WA-API] getGroups: Mapped', groups.length, 'groups, sending postMessage');
             window.postMessage({ type: 'WA_GROUPS', groups }, '*');
           } catch (e) {
             console.error('[WA-API] getGroups error:', e);
+            console.error('[WA-API] Error stack:', e.stack);
             window.postMessage({ type: 'WA_GROUPS', groups: [], error: e.message }, '*');
           }
         })();
@@ -341,7 +353,7 @@ const WhatsAppAPI = {
       setTimeout(() => {
         window.removeEventListener('message', handler);
         resolve({ groups: [], error: 'Timeout fetching groups' });
-      }, 10000);
+      }, 30000);
     });
   },
 

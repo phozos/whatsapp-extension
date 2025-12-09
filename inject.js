@@ -42,26 +42,29 @@
         ready: true,
         WPP: WPP,
 
-        getChats: function() {
+        getChats: async function() {
           try {
             console.log('[WA-EXT] getChats: Trying to fetch chats...');
             
+            // Try async WPP.chat.list first (most reliable)
+            if (WPP.chat && WPP.chat.list) {
+              try {
+                const chats = await WPP.chat.list();
+                console.log('[WA-EXT] getChats: Got', chats?.length || 0, 'chats from WPP.chat.list (async)');
+                if (chats && chats.length > 0) return chats;
+              } catch (e) {
+                console.log('[WA-EXT] getChats: WPP.chat.list async failed:', e.message);
+              }
+            }
+            
+            // Fallback to ChatStore
             if (WPP.whatsapp && WPP.whatsapp.ChatStore) {
               const chats = WPP.whatsapp.ChatStore.getModelsArray();
               console.log('[WA-EXT] getChats: Got', chats?.length || 0, 'chats from ChatStore');
               if (chats && chats.length > 0) return chats;
             }
             
-            if (WPP.chat && WPP.chat.list) {
-              try {
-                const chats = WPP.chat.list();
-                console.log('[WA-EXT] getChats: Got', chats?.length || 0, 'chats from WPP.chat.list');
-                if (chats && chats.length > 0) return chats;
-              } catch (e) {
-                console.log('[WA-EXT] getChats: WPP.chat.list failed:', e.message);
-              }
-            }
-            
+            // Fallback to Store.Chat
             if (typeof Store !== 'undefined' && Store.Chat) {
               try {
                 const chats = Store.Chat.getModelsArray ? Store.Chat.getModelsArray() : Store.Chat.models;
@@ -80,10 +83,60 @@
           }
         },
 
-        getGroups: function() {
+        getGroups: async function() {
           try {
             console.log('[WA-EXT] getGroups: Fetching groups...');
-            const chats = this.getChats();
+            
+            // Try WPP.chat.list with onlyGroups option first (most reliable async method)
+            if (WPP.chat && WPP.chat.list) {
+              try {
+                const groups = await WPP.chat.list({ onlyGroups: true });
+                console.log('[WA-EXT] getGroups: Got', groups?.length || 0, 'groups from WPP.chat.list({ onlyGroups: true })');
+                if (groups && groups.length > 0) {
+                  return groups.map(g => ({
+                    id: g.id?._serialized || String(g.id),
+                    name: g.name || g.formattedTitle || 'Unknown Group',
+                    participants: g.groupMetadata?.participants?.length || g.participants?.length || 0,
+                    isGroup: true
+                  }));
+                }
+              } catch (e) {
+                console.log('[WA-EXT] getGroups: WPP.chat.list({ onlyGroups: true }) failed:', e.message);
+              }
+            }
+            
+            // Fallback to ChatStore filtered for groups
+            if (WPP.whatsapp && WPP.whatsapp.ChatStore) {
+              try {
+                const chats = WPP.whatsapp.ChatStore.getModelsArray();
+                console.log('[WA-EXT] getGroups: Got', chats?.length || 0, 'chats from ChatStore');
+                
+                const isGroup = (c) => {
+                  if (c.isGroup) return true;
+                  if (c.id && c.id.server === 'g.us') return true;
+                  if (c.id && c.id._serialized && c.id._serialized.includes('@g.us')) return true;
+                  if (c.kind === 'group') return true;
+                  return false;
+                };
+                
+                const groups = chats.filter(c => isGroup(c) && !c.isReadOnly);
+                console.log('[WA-EXT] getGroups: Found', groups.length, 'groups from ChatStore');
+                
+                if (groups.length > 0) {
+                  return groups.map(g => ({
+                    id: g.id?._serialized || String(g.id),
+                    name: g.name || g.formattedTitle || 'Unknown Group',
+                    participants: g.groupMetadata?.participants?.length || g.participants?.length || 0,
+                    isGroup: true
+                  }));
+                }
+              } catch (e) {
+                console.log('[WA-EXT] getGroups: ChatStore fallback failed:', e.message);
+              }
+            }
+            
+            // Final fallback: get all chats async and filter
+            const chats = await window.WA.getChats();
             
             if (!Array.isArray(chats) || chats.length === 0) {
               console.warn('[WA-EXT] getGroups: No chats available');
@@ -99,9 +152,14 @@
             };
             
             const groups = chats.filter(c => isGroup(c) && !c.isReadOnly);
-            console.log('[WA-EXT] getGroups: Found', groups.length, 'groups from', chats.length, 'chats');
+            console.log('[WA-EXT] getGroups: Found', groups.length, 'groups from', chats.length, 'chats (fallback)');
             
-            return groups;
+            return groups.map(g => ({
+              id: g.id?._serialized || String(g.id),
+              name: g.name || g.formattedTitle || 'Unknown Group',
+              participants: g.groupMetadata?.participants?.length || g.participants?.length || 0,
+              isGroup: true
+            }));
           } catch (e) {
             console.error('[WA-EXT] Error getting groups:', e);
             return [];
@@ -122,7 +180,7 @@
 
         findChatById: async function(chatId) {
           try {
-            const chats = this.getChats();
+            const chats = await window.WA.getChats();
             let chat = chats.find(c => 
               c.id?._serialized === chatId || 
               c.id === chatId ||
@@ -234,7 +292,7 @@
               return await WPP.group.getParticipants(groupId);
             }
             
-            const chat = await this.findChatById(groupId);
+            const chat = await window.WA.findChatById(groupId);
             if (chat && chat.groupMetadata && chat.groupMetadata.participants) {
               return chat.groupMetadata.participants.getModelsArray ? 
                 chat.groupMetadata.participants.getModelsArray() : 
@@ -250,7 +308,7 @@
 
         isParticipant: async function(groupId, phoneNumber) {
           try {
-            const participants = await this.getGroupParticipants(groupId);
+            const participants = await window.WA.getGroupParticipants(groupId);
             const cleanNumber = phoneNumber.replace(/\D/g, '');
             return participants.some(p => {
               const pId = p.id?._serialized || p.id || '';
