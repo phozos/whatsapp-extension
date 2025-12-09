@@ -83,13 +83,22 @@ const WhatsAppAPI = {
   },
 
   injectScript() {
-    const script = document.createElement('script');
-    script.src = chrome.runtime.getURL('inject.js');
-    script.onload = () => {
-      script.remove();
-      this.waitForReady();
+    const wppScript = document.createElement('script');
+    wppScript.src = chrome.runtime.getURL('wppconnect-wa.js');
+    wppScript.onload = () => {
+      console.log('[WA-API] WPPConnect library loaded');
+      const injectScript = document.createElement('script');
+      injectScript.src = chrome.runtime.getURL('inject.js');
+      injectScript.onload = () => {
+        injectScript.remove();
+        this.waitForReady();
+      };
+      (document.head || document.documentElement).appendChild(injectScript);
     };
-    (document.head || document.documentElement).appendChild(script);
+    wppScript.onerror = (e) => {
+      console.error('[WA-API] Failed to load WPPConnect library:', e);
+    };
+    (document.head || document.documentElement).appendChild(wppScript);
   },
 
   waitForReady() {
@@ -190,19 +199,40 @@ const WhatsAppAPI = {
     });
   },
 
+  async waitForWAReady() {
+    return new Promise((resolve) => {
+      const check = () => {
+        if (window.WA && window.WA.ready) {
+          resolve(true);
+        } else {
+          setTimeout(check, 200);
+        }
+      };
+      check();
+      setTimeout(() => resolve(false), 15000);
+    });
+  },
+
   async getGroups() {
+    await this.waitForWAReady();
+    
     return new Promise((resolve) => {
       const script = document.createElement('script');
       script.textContent = `
         (function() {
           try {
+            if (!window.WA || !window.WA.ready) {
+              window.postMessage({ type: 'WA_GROUPS', groups: [], error: 'WA not ready' }, '*');
+              return;
+            }
             const groups = window.WA.getGroups().map(g => ({
-              id: g.id?._serialized || g.id,
-              name: g.name || 'Unknown Group',
-              participants: g.participants?.length || 0
+              id: g.id?._serialized || String(g.id),
+              name: g.name || g.formattedTitle || 'Unknown Group',
+              participants: g.groupMetadata?.participants?.length || g.participants?.length || 0
             }));
             window.postMessage({ type: 'WA_GROUPS', groups }, '*');
           } catch (e) {
+            console.error('[WA-API] getGroups error:', e);
             window.postMessage({ type: 'WA_GROUPS', groups: [], error: e.message }, '*');
           }
         })();
@@ -213,6 +243,9 @@ const WhatsAppAPI = {
       const handler = (event) => {
         if (event.data && event.data.type === 'WA_GROUPS') {
           window.removeEventListener('message', handler);
+          if (event.data.error) {
+            console.warn('[WA-API] Groups fetch error:', event.data.error);
+          }
           resolve(event.data.groups || []);
         }
       };
@@ -221,25 +254,32 @@ const WhatsAppAPI = {
       setTimeout(() => {
         window.removeEventListener('message', handler);
         resolve([]);
-      }, 5000);
+      }, 10000);
     });
   },
 
   async getContacts() {
+    await this.waitForWAReady();
+    
     return new Promise((resolve) => {
       const script = document.createElement('script');
       script.textContent = `
         (function() {
           try {
+            if (!window.WA || !window.WA.ready) {
+              window.postMessage({ type: 'WA_CONTACTS', contacts: [], error: 'WA not ready' }, '*');
+              return;
+            }
             const contacts = window.WA.getContacts()
-              .filter(c => c.isUser && !c.isGroup && c.name)
+              .filter(c => c.isUser && !c.isGroup && (c.name || c.pushname))
               .map(c => ({
-                id: c.id?._serialized || c.id,
+                id: c.id?._serialized || String(c.id),
                 name: c.name || c.pushname || 'Unknown',
                 phone: c.id?.user || ''
               }));
             window.postMessage({ type: 'WA_CONTACTS', contacts }, '*');
           } catch (e) {
+            console.error('[WA-API] getContacts error:', e);
             window.postMessage({ type: 'WA_CONTACTS', contacts: [], error: e.message }, '*');
           }
         })();
@@ -250,6 +290,9 @@ const WhatsAppAPI = {
       const handler = (event) => {
         if (event.data && event.data.type === 'WA_CONTACTS') {
           window.removeEventListener('message', handler);
+          if (event.data.error) {
+            console.warn('[WA-API] Contacts fetch error:', event.data.error);
+          }
           resolve(event.data.contacts || []);
         }
       };
@@ -258,7 +301,7 @@ const WhatsAppAPI = {
       setTimeout(() => {
         window.removeEventListener('message', handler);
         resolve([]);
-      }, 5000);
+      }, 10000);
     });
   },
 
@@ -283,29 +326,20 @@ const WhatsAppAPI = {
   },
 
   async setPresence(chatId, state) {
-    return new Promise((resolve) => {
-      const script = document.createElement('script');
-      script.textContent = `
-        window.WA.setPresence('${chatId}', '${state}');
-      `;
-      document.head.appendChild(script);
-      script.remove();
-      resolve(true);
-    });
+    return this.callWA('setPresence', chatId, state);
   },
 
   async isParticipant(groupId, phoneNumber) {
     return new Promise((resolve) => {
       const script = document.createElement('script');
       script.textContent = `
-        (function() {
+        (async function() {
           try {
-            const group = window.WA.findChatById ? window.WA.findChat('${groupId}') : null;
-            if (!group) {
+            if (!window.WA || !window.WA.ready) {
               window.postMessage({ type: 'WA_IS_PARTICIPANT', result: false }, '*');
               return;
             }
-            const result = window.WA.isParticipant(group, '${phoneNumber}');
+            const result = await window.WA.isParticipant('${groupId}', '${phoneNumber}');
             window.postMessage({ type: 'WA_IS_PARTICIPANT', result }, '*');
           } catch (e) {
             window.postMessage({ type: 'WA_IS_PARTICIPANT', result: false, error: e.message }, '*');
@@ -346,7 +380,7 @@ const WhatsAppAPI = {
     if (forceCheck) {
       this.updateConnectionState();
     }
-    return this.connectionState;
+    return this.connectionState && this.isReady;
   }
 };
 

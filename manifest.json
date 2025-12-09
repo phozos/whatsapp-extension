@@ -25,7 +25,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["inject.js"],
+      "resources": ["inject.js", "wppconnect-wa.js"],
       "matches": ["https://web.whatsapp.com/*"]
     }
   ],
