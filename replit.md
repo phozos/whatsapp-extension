@@ -36,4 +36,12 @@ The extension shows "Disconnected" when:
 - Content script hasn't been injected (refresh the page)
 
 ## Recent Changes
+- Dec 2024: Fixed groups not loading issue by integrating WPPConnect WA-JS library
+  - Replaced outdated webpack interception with bundled WA-JS library (v3.19.4)
+  - Extension now works with WhatsApp Web 2.3000+ (post-webpack versions)
+  - Added wppconnect-wa.js as bundled dependency
 - Initial Replit setup with landing page server
+
+## Dependencies
+- wppconnect-wa.js: Bundled WPPConnect WA-JS library for WhatsApp Web module access
+  - Update periodically from: https://github.com/wppconnect-team/wa-js/releases
