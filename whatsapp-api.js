@@ -107,38 +107,67 @@ const WhatsAppAPI = {
     const startTime = Date.now();
     this.apiReadyState = 'initializing';
     
-    const checkReady = () => {
-      if (window.WA && window.WA.ready) {
-        this.isReady = true;
-        this.apiReadyState = 'ready';
-        this.readyCallbacks.forEach(cb => cb());
-        this.readyCallbacks = [];
-        console.log('WhatsApp API ready');
-      } else if (window.WA && window.WA.error) {
-        console.warn('WhatsApp API error:', window.WA.error);
-        this.isReady = false;
-        this.apiReadyState = 'error';
-      } else if (Date.now() - startTime < maxWaitTime) {
-        setTimeout(checkReady, 500);
-      } else {
-        console.warn('WhatsApp API: Timeout waiting for ready state');
-        this.apiReadyState = 'timeout';
-      }
+    // Check DOM bridge element (works across context boundaries)
+    const checkDOMBridge = () => {
+      const bridge = document.querySelector('#wa-extension-bridge[data-ready="true"]');
+      return bridge !== null;
     };
-
-    window.addEventListener('WAReady', () => {
+    
+    // Check for error state in DOM bridge
+    const checkDOMBridgeError = () => {
+      const bridge = document.querySelector('#wa-extension-bridge[data-error]');
+      return bridge ? bridge.getAttribute('data-error') : null;
+    };
+    
+    const markReady = () => {
+      if (this.isReady) return; // Prevent duplicate callbacks
       this.isReady = true;
       this.apiReadyState = 'ready';
       this.readyCallbacks.forEach(cb => cb());
       this.readyCallbacks = [];
-      console.log('WhatsApp API ready (event)');
-    });
+      console.log('[WA-API] WhatsApp API ready');
+    };
     
-    window.addEventListener('WAError', (e) => {
-      console.warn('WhatsApp API error event:', e.detail);
+    const markError = (error) => {
+      console.warn('[WA-API] WhatsApp API error:', error);
       this.isReady = false;
       this.apiReadyState = 'error';
+    };
+    
+    // Listen for postMessage from inject.js (crosses context boundaries)
+    window.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'WA_EXTENSION_READY') {
+        if (event.data.ready) {
+          markReady();
+        } else if (event.data.error) {
+          markError(event.data.error);
+        }
+      }
     });
+    
+    // Polling loop to check DOM bridge (fallback for race conditions)
+    const checkReady = () => {
+      // Check DOM bridge first (accessible across contexts)
+      if (checkDOMBridge()) {
+        markReady();
+        return;
+      }
+      
+      // Check for error state
+      const errorMsg = checkDOMBridgeError();
+      if (errorMsg) {
+        markError(errorMsg);
+        return;
+      }
+      
+      // Continue polling
+      if (Date.now() - startTime < maxWaitTime) {
+        setTimeout(checkReady, 500);
+      } else {
+        console.warn('[WA-API] WhatsApp API: Timeout waiting for ready state');
+        this.apiReadyState = 'timeout';
+      }
+    };
 
     checkReady();
   },
@@ -211,11 +240,40 @@ const WhatsAppAPI = {
       const startTime = Date.now();
       const maxWait = 15000;
       
-      const check = () => {
-        if (window.WA && window.WA.ready) {
+      // Check DOM bridge element (works across context boundaries)
+      const checkDOMBridge = () => {
+        const bridge = document.querySelector('#wa-extension-bridge[data-ready="true"]');
+        return bridge !== null;
+      };
+      
+      // If already ready via internal state or DOM bridge, resolve immediately
+      if (this.isReady || checkDOMBridge()) {
+        this.apiReadyState = 'ready';
+        this.isReady = true;
+        resolve(true);
+        return;
+      }
+      
+      // Set up postMessage listener for ready signal
+      const messageHandler = (event) => {
+        if (event.data && event.data.type === 'WA_EXTENSION_READY' && event.data.ready) {
+          window.removeEventListener('message', messageHandler);
           this.apiReadyState = 'ready';
+          this.isReady = true;
+          resolve(true);
+        }
+      };
+      window.addEventListener('message', messageHandler);
+      
+      // Polling loop to check DOM bridge (fallback)
+      const check = () => {
+        if (this.isReady || checkDOMBridge()) {
+          window.removeEventListener('message', messageHandler);
+          this.apiReadyState = 'ready';
+          this.isReady = true;
           resolve(true);
         } else if (Date.now() - startTime >= maxWait) {
+          window.removeEventListener('message', messageHandler);
           console.warn('[WA-API] waitForWAReady timed out after', maxWait, 'ms');
           resolve(false);
         } else {

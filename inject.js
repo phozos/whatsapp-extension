@@ -268,7 +268,20 @@
       };
 
       console.log('[WA-EXT] WhatsApp API initialized successfully');
-      window.dispatchEvent(new CustomEvent('WAReady'));
+      
+      // Create DOM bridge element for cross-context communication
+      let bridge = document.getElementById('wa-extension-bridge');
+      if (!bridge) {
+        bridge = document.createElement('div');
+        bridge.id = 'wa-extension-bridge';
+        bridge.style.display = 'none';
+        document.body.appendChild(bridge);
+      }
+      bridge.setAttribute('data-ready', 'true');
+      bridge.removeAttribute('data-error');
+      
+      // Use postMessage for cross-context communication (custom events don't cross context boundaries)
+      window.postMessage({ type: 'WA_EXTENSION_READY', ready: true }, '*');
 
     } catch (e) {
       console.error('[WA-EXT] Error initializing WhatsApp API:', e);
@@ -276,7 +289,20 @@
         ready: false,
         error: e.message
       };
-      window.dispatchEvent(new CustomEvent('WAError', { detail: e.message }));
+      
+      // Update DOM bridge with error state
+      let bridge = document.getElementById('wa-extension-bridge');
+      if (!bridge) {
+        bridge = document.createElement('div');
+        bridge.id = 'wa-extension-bridge';
+        bridge.style.display = 'none';
+        document.body.appendChild(bridge);
+      }
+      bridge.setAttribute('data-ready', 'false');
+      bridge.setAttribute('data-error', e.message);
+      
+      // Send error via postMessage
+      window.postMessage({ type: 'WA_EXTENSION_READY', ready: false, error: e.message }, '*');
     }
   }
 
