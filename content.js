@@ -15,14 +15,25 @@ const AutomationEngine = {
 
   init() {
     this.setupMessageListener();
-    this.broadcastConnectionStatus();
     this.registerConnectionListener();
-    this.checkConnection();
+    this.startDelayedConnectionCheck();
     console.log('WhatsApp Automation Engine initialized');
   },
 
+  startDelayedConnectionCheck() {
+    const delays = [500, 1500, 3000, 5000];
+    
+    delays.forEach(delay => {
+      setTimeout(() => {
+        this.broadcastConnectionStatus();
+      }, delay);
+    });
+    
+    this.checkConnection();
+  },
+
   broadcastConnectionStatus() {
-    const connected = WhatsAppAPI.isConnected();
+    const connected = WhatsAppAPI.isConnected(true);
     chrome.runtime.sendMessage({
       action: 'connectionStatus',
       connected
@@ -48,7 +59,7 @@ const AutomationEngine = {
   async handleMessage(message, sendResponse) {
     switch (message.action) {
       case 'ping':
-        sendResponse({ status: 'ok', connected: WhatsAppAPI.isConnected() });
+        sendResponse({ status: 'ok', connected: WhatsAppAPI.isConnected(true) });
         break;
 
       case 'getGroups':

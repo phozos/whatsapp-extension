@@ -35,14 +35,31 @@ const WhatsAppAPI = {
   },
 
   updateConnectionState() {
-    const hasChatlist = document.querySelector('[data-testid="chatlist"]') !== null;
-    const hasQRCode = document.querySelector('[data-testid="qrcode"]') !== null;
-    const hasLandingWrapper = document.querySelector('.landing-wrapper') !== null;
+    const connectedSelectors = [
+      '[data-testid="chatlist"]',
+      '[data-testid="chat-list"]', 
+      '#pane-side',
+      '[data-testid="conversation-panel-wrapper"]',
+      '[aria-label*="Chat list"]',
+      'div[data-tab="3"]'
+    ];
     
-    const newState = hasChatlist && !hasQRCode && !hasLandingWrapper;
+    const disconnectedSelectors = [
+      '[data-testid="qrcode"]',
+      'canvas[aria-label*="QR"]',
+      '.landing-wrapper',
+      '[data-testid="intro-md-beta-logo-dark"]',
+      '[data-testid="intro-md-beta-logo-light"]'
+    ];
+    
+    const hasConnectedElement = connectedSelectors.some(sel => document.querySelector(sel) !== null);
+    const hasDisconnectedElement = disconnectedSelectors.some(sel => document.querySelector(sel) !== null);
+    
+    const newState = hasConnectedElement && !hasDisconnectedElement;
     
     if (newState !== this.connectionState) {
       this.connectionState = newState;
+      console.log('WhatsApp connection state changed:', newState ? 'Connected' : 'Disconnected');
       this.connectionCallbacks.forEach(cb => {
         try {
           cb(newState);
@@ -51,6 +68,11 @@ const WhatsAppAPI = {
         }
       });
     }
+  },
+
+  forceConnectionCheck() {
+    this.updateConnectionState();
+    return this.connectionState;
   },
 
   onConnectionChange(callback) {
@@ -71,14 +93,22 @@ const WhatsAppAPI = {
   },
 
   waitForReady() {
+    const maxWaitTime = 120000;
+    const startTime = Date.now();
+    
     const checkReady = () => {
       if (window.WA && window.WA.ready) {
         this.isReady = true;
         this.readyCallbacks.forEach(cb => cb());
         this.readyCallbacks = [];
         console.log('WhatsApp API ready');
-      } else {
+      } else if (window.WA && window.WA.error) {
+        console.warn('WhatsApp API error:', window.WA.error);
+        this.isReady = false;
+      } else if (Date.now() - startTime < maxWaitTime) {
         setTimeout(checkReady, 500);
+      } else {
+        console.warn('WhatsApp API: Timeout waiting for ready state');
       }
     };
 
@@ -86,6 +116,12 @@ const WhatsAppAPI = {
       this.isReady = true;
       this.readyCallbacks.forEach(cb => cb());
       this.readyCallbacks = [];
+      console.log('WhatsApp API ready (event)');
+    });
+    
+    window.addEventListener('WAError', (e) => {
+      console.warn('WhatsApp API error event:', e.detail);
+      this.isReady = false;
     });
 
     checkReady();
@@ -306,7 +342,10 @@ const WhatsAppAPI = {
     return warnings.some(w => bodyText.toLowerCase().includes(w.toLowerCase()));
   },
 
-  isConnected() {
+  isConnected(forceCheck = false) {
+    if (forceCheck) {
+      this.updateConnectionState();
+    }
     return this.connectionState;
   }
 };

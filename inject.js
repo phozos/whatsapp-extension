@@ -2,60 +2,208 @@
   if (window.WAInjected) return;
   window.WAInjected = true;
 
-  function findModule(query) {
-    if (!window.mR) {
-      const webpackGlobal = Object.keys(window).find(key => 
-        key.startsWith('webpackChunkwhatsapp_web_client')
-      );
-      
-      if (webpackGlobal) {
-        window.mR = {
-          modules: {},
-          findModule: function(name) {
-            return Object.values(this.modules).filter(m => 
-              m && m.default && m.default[name]
-            );
+  let moduleCache = null;
+  let parasite = null;
+  const requiredModules = {};
+
+  function interceptWebpackChunk() {
+    const chunkKey = 'webpackChunk_nicegram_nicegram_web_frontend';
+    const chunkKeyAlt = 'webpackChunkwhatsapp_web_client';
+    
+    const tryIntercept = (key) => {
+      if (window[key]) {
+        const chunk = window[key];
+        if (Array.isArray(chunk) && chunk.push) {
+          const origPush = chunk.push.bind(chunk);
+          chunk.push = function(data) {
+            try {
+              if (data && data[2]) {
+                data[2]((r) => { 
+                  parasite = r;
+                  if (r.c) moduleCache = r.c;
+                });
+              }
+            } catch (e) {}
+            return origPush.apply(chunk, arguments);
+          };
+          
+          if (chunk.length > 0) {
+            try {
+              chunk.push([['waext_init'], {}, (r) => { 
+                parasite = r; 
+                if (r?.c) moduleCache = r.c;
+              }]);
+            } catch (e) {}
           }
-        };
+        }
+        return true;
+      }
+      return false;
+    };
+
+    const keys = Object.keys(window).filter(k => 
+      k.startsWith('webpackChunk') || k.includes('webpack')
+    );
+    
+    for (const key of keys) {
+      tryIntercept(key);
+    }
+    
+    if (!tryIntercept(chunkKey)) {
+      tryIntercept(chunkKeyAlt);
+    }
+
+    Object.keys(window).forEach(key => {
+      try {
+        const val = window[key];
+        if (val && typeof val === 'function' && val.m && val.c) {
+          parasite = val;
+          moduleCache = val.c;
+        }
+      } catch (e) {}
+    });
+  }
+
+  function searchAllModules(predicate) {
+    const results = [];
+    const searched = new Set();
+
+    if (moduleCache) {
+      for (const id in moduleCache) {
+        if (searched.has(id)) continue;
+        searched.add(id);
+        
+        try {
+          const mod = moduleCache[id];
+          if (!mod?.exports) continue;
+          
+          const exp = mod.exports;
+          if (predicate(exp)) results.push(exp);
+          if (exp?.default && predicate(exp.default)) results.push(exp.default);
+          
+          for (const key in exp) {
+            try {
+              if (exp[key] && typeof exp[key] === 'object' && predicate(exp[key])) {
+                results.push(exp[key]);
+              }
+            } catch (e) {}
+          }
+        } catch (e) {}
       }
     }
 
-    try {
-      const modules = [];
-      const require = window.mR?.m || (window.require && window.require.c) || {};
-      
-      Object.keys(require).forEach(key => {
+    if (parasite?.c) {
+      for (const id in parasite.c) {
+        if (searched.has(id)) continue;
+        searched.add(id);
+        
         try {
-          const mod = require[key];
-          if (mod && mod.exports) {
-            const exp = mod.exports;
-            if (exp[query] || exp.default?.[query]) {
-              modules.push(exp[query] || exp.default[query]);
-            }
+          const mod = parasite.c[id];
+          if (!mod?.exports) continue;
+          
+          const exp = mod.exports;
+          if (predicate(exp)) results.push(exp);
+          if (exp?.default && predicate(exp.default)) results.push(exp.default);
+        } catch (e) {}
+      }
+    }
+
+    if (results.length === 0) {
+      const winKeys = Object.getOwnPropertyNames(window);
+      for (const key of winKeys) {
+        try {
+          const obj = window[key];
+          if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+            if (predicate(obj)) results.push(obj);
+            if (obj.default && predicate(obj.default)) results.push(obj.default);
           }
         } catch (e) {}
-      });
-      
-      return modules;
-    } catch (e) {
-      return [];
+      }
     }
+
+    return results;
+  }
+
+  function findModuleByProp(prop, condition) {
+    const results = searchAllModules(m => {
+      try {
+        return m && m[prop] && (!condition || condition(m[prop]));
+      } catch (e) { return false; }
+    });
+    return results[0] || null;
+  }
+
+  function findByCondition(condition) {
+    const results = searchAllModules(condition);
+    return results[0] || null;
+  }
+
+  function buildStore() {
+    const store = {};
+
+    const chatMod = findByCondition(m => m?.Chat?.getModelsArray);
+    if (chatMod) store.Chat = chatMod.Chat;
+
+    const contactMod = findByCondition(m => m?.Contact?.getModelsArray);
+    if (contactMod) store.Contact = contactMod.Contact;
+
+    const sendMod = findByCondition(m => typeof m?.SendTextMsgToChat === 'function');
+    if (sendMod) store.SendTextMsgToChat = sendMod.SendTextMsgToChat;
+
+    const sendMod2 = findByCondition(m => typeof m?.sendTextMsgToChat === 'function');
+    if (sendMod2) store.SendTextMsgToChat = store.SendTextMsgToChat || sendMod2.sendTextMsgToChat;
+
+    const mediaMod = findByCondition(m => m?.OpaqueData?.createFromData);
+    if (mediaMod) store.OpaqueData = mediaMod.OpaqueData;
+
+    const sendMediaMod = findByCondition(m => typeof m?.SendMediaMsgToChat === 'function');
+    if (sendMediaMod) store.SendMediaMsgToChat = sendMediaMod.SendMediaMsgToChat;
+
+    const groupMod = findByCondition(m => m?.GroupParticipants?.addParticipants);
+    if (groupMod) store.GroupParticipants = groupMod.GroupParticipants;
+
+    const partMod = findByCondition(m => m?.Participants?.addParticipants);
+    if (partMod) store.Participants = partMod.Participants;
+
+    const numMod = findByCondition(m => m?.NumberInfo?.checkNumber);
+    if (numMod) store.NumberInfo = numMod.NumberInfo;
+
+    const chatStatesMod = findByCondition(m => typeof m?.sendChatStateComposing === 'function');
+    if (chatStatesMod) store.ChatStates = chatStatesMod;
+
+    const chatStatesMod2 = findByCondition(m => m?.ChatStates?.sendChatStateComposing);
+    if (chatStatesMod2) store.ChatStates = store.ChatStates || chatStatesMod2.ChatStates;
+
+    const readMod = findByCondition(m => m?.ReadSeen?.sendSeen);
+    if (readMod) store.ReadSeen = readMod.ReadSeen;
+
+    return store;
   }
 
   function initializeStore() {
-    const maxAttempts = 100;
+    const maxAttempts = 200;
     let attempts = 0;
 
     const tryInit = () => {
       attempts++;
+      interceptWebpackChunk();
       
       try {
-        const storeModules = findModule('Chat');
-        const store = storeModules[0] || {};
-
+        const store = buildStore();
+        const hasChat = !!store.Chat?.getModelsArray;
+        const hasContact = !!store.Contact?.getModelsArray;
+        
         window.WA = {
           Store: store,
           ready: false,
+          moduleStatus: {
+            Chat: hasChat,
+            Contact: hasContact,
+            SendTextMsgToChat: !!store.SendTextMsgToChat,
+            GroupParticipants: !!(store.GroupParticipants || store.Participants),
+            ChatStates: !!store.ChatStates,
+            ReadSeen: !!store.ReadSeen
+          },
 
           getChats: function() {
             try {
@@ -108,7 +256,8 @@
               if (this.Store.Chat?.find) {
                 return await this.Store.Chat.find(chatId);
               }
-              return null;
+              const chats = this.getChats();
+              return chats.find(c => c.id?._serialized === chatId || c.id === chatId);
             } catch (e) {
               console.error('Error finding chat by ID:', e);
               return null;
@@ -259,12 +408,23 @@
           }
         };
 
-        if (window.WA.getChats().length > 0 || attempts > 50) {
+        const chatsLoaded = window.WA.getChats().length > 0;
+        
+        if (hasChat && chatsLoaded) {
           window.WA.ready = true;
-          console.log('WhatsApp API initialized successfully');
+          console.log('WhatsApp API initialized with modules:', window.WA.moduleStatus);
+          window.dispatchEvent(new CustomEvent('WAReady'));
+        } else if (hasChat && attempts > 60) {
+          window.WA.ready = true;
+          console.log('WhatsApp API ready (modules found):', window.WA.moduleStatus);
           window.dispatchEvent(new CustomEvent('WAReady'));
         } else if (attempts < maxAttempts) {
-          setTimeout(tryInit, 500);
+          setTimeout(tryInit, attempts < 50 ? 500 : 1000);
+        } else {
+          console.warn('WhatsApp API: Module discovery incomplete. Status:', window.WA.moduleStatus);
+          window.WA.ready = false;
+          window.WA.error = 'Some modules not found';
+          window.dispatchEvent(new CustomEvent('WAError', { detail: window.WA.moduleStatus }));
         }
 
       } catch (e) {
@@ -275,12 +435,12 @@
       }
     };
 
-    tryInit();
+    setTimeout(tryInit, 1000);
   }
 
   if (document.readyState === 'complete') {
-    setTimeout(initializeStore, 2000);
+    initializeStore();
   } else {
-    window.addEventListener('load', () => setTimeout(initializeStore, 2000));
+    window.addEventListener('load', initializeStore);
   }
 })();
