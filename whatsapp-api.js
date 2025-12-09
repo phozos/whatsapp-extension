@@ -1,10 +1,63 @@
 const WhatsAppAPI = {
   isReady: false,
   readyCallbacks: [],
+  connectionState: false,
+  connectionObserver: null,
+  connectionCallbacks: [],
 
   init() {
     this.injectScript();
     this.setupMessageListener();
+    this.initConnectionObserver();
+  },
+
+  initConnectionObserver() {
+    this.updateConnectionState();
+    
+    this.connectionObserver = new MutationObserver(() => {
+      this.updateConnectionState();
+    });
+
+    const startObserving = () => {
+      this.connectionObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['data-testid', 'class']
+      });
+    };
+
+    if (document.body) {
+      startObserving();
+    } else {
+      document.addEventListener('DOMContentLoaded', startObserving);
+    }
+  },
+
+  updateConnectionState() {
+    const hasChatlist = document.querySelector('[data-testid="chatlist"]') !== null;
+    const hasQRCode = document.querySelector('[data-testid="qrcode"]') !== null;
+    const hasLandingWrapper = document.querySelector('.landing-wrapper') !== null;
+    
+    const newState = hasChatlist && !hasQRCode && !hasLandingWrapper;
+    
+    if (newState !== this.connectionState) {
+      this.connectionState = newState;
+      this.connectionCallbacks.forEach(cb => {
+        try {
+          cb(newState);
+        } catch (e) {
+          console.error('Connection callback error:', e);
+        }
+      });
+    }
+  },
+
+  onConnectionChange(callback) {
+    if (typeof callback === 'function') {
+      this.connectionCallbacks.push(callback);
+      callback(this.connectionState);
+    }
   },
 
   injectScript() {
@@ -254,8 +307,7 @@ const WhatsAppAPI = {
   },
 
   isConnected() {
-    const loadingIndicators = document.querySelectorAll('[data-testid="qrcode"], .landing-wrapper');
-    return loadingIndicators.length === 0 && document.querySelector('[data-testid="chatlist"]') !== null;
+    return this.connectionState;
   }
 };
 

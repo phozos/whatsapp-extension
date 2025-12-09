@@ -84,7 +84,10 @@ class PopupController {
   }
 
   bindLogControls() {
-    // Additional log controls if needed
+    const retryBtn = document.getElementById('retryConnection');
+    if (retryBtn) {
+      retryBtn.addEventListener('click', () => this.reconnect());
+    }
   }
 
   setupMessageListener() {
@@ -107,6 +110,8 @@ class PopupController {
   }
 
   async checkConnection() {
+    const retryDelays = [500, 1000, 2000, 4000];
+    
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab.url?.includes('web.whatsapp.com')) {
@@ -114,21 +119,45 @@ class PopupController {
         return;
       }
 
-      const response = await chrome.tabs.sendMessage(tab.id, { action: 'ping' });
-      this.updateConnectionStatus(response?.connected || false);
+      for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
+        try {
+          const response = await chrome.tabs.sendMessage(tab.id, { action: 'ping' });
+          if (response?.connected) {
+            this.updateConnectionStatus(true);
+            return;
+          }
+        } catch (error) {
+        }
+
+        if (attempt < retryDelays.length) {
+          await new Promise(resolve => setTimeout(resolve, retryDelays[attempt]));
+        }
+      }
+
+      this.updateConnectionStatus(false);
     } catch (error) {
       this.updateConnectionStatus(false, 'Not connected');
     }
+  }
+
+  async reconnect() {
+    this.updateConnectionStatus(false, 'Retrying...');
+    await this.checkConnection();
   }
 
   updateConnectionStatus(connected, text = null) {
     const indicator = document.getElementById('connectionStatus');
     const dot = indicator.querySelector('.status-dot');
     const statusText = indicator.querySelector('.status-text');
+    const retryBtn = document.getElementById('retryConnection');
 
     dot.classList.remove('connected', 'disconnected');
     dot.classList.add(connected ? 'connected' : 'disconnected');
     statusText.textContent = text || (connected ? 'Connected' : 'Disconnected');
+
+    if (retryBtn) {
+      retryBtn.style.display = connected ? 'none' : 'inline';
+    }
   }
 
   async loadGroups() {

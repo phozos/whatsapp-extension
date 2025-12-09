@@ -15,8 +15,27 @@ const AutomationEngine = {
 
   init() {
     this.setupMessageListener();
+    this.broadcastConnectionStatus();
+    this.registerConnectionListener();
     this.checkConnection();
     console.log('WhatsApp Automation Engine initialized');
+  },
+
+  broadcastConnectionStatus() {
+    const connected = WhatsAppAPI.isConnected();
+    chrome.runtime.sendMessage({
+      action: 'connectionStatus',
+      connected
+    }).catch(() => {});
+  },
+
+  registerConnectionListener() {
+    WhatsAppAPI.onConnectionChange((connected) => {
+      chrome.runtime.sendMessage({
+        action: 'connectionStatus',
+        connected
+      }).catch(() => {});
+    });
   },
 
   setupMessageListener() {

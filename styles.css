@@ -76,6 +76,22 @@ body {
   background: var(--danger);
 }
 
+.btn-retry {
+  padding: 2px 8px;
+  font-size: 11px;
+  border: none;
+  background: var(--info);
+  color: var(--white);
+  border-radius: 4px;
+  cursor: pointer;
+  margin-left: 4px;
+  transition: var(--transition);
+}
+
+.btn-retry:hover {
+  background: #138496;
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
